@@ -6,18 +6,17 @@ import { chunkPages } from '@/lib/chunker';
 import { getEmbeddingsBatch } from '@/lib/embeddings';
 import { clearVectorStore, addChunksToVectorStore } from '@/lib/vectorstore';
 import { clearBM25Index, buildBM25Index } from '@/lib/bm25';
+import { setProgress, resetProgress } from '@/lib/ingestProgress';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST() {
   const pdfsDir = path.join(process.cwd(), 'data', 'pdfs');
 
-  // Create PDFs directory if not exists
   if (!fs.existsSync(pdfsDir)) {
     fs.mkdirSync(pdfsDir, { recursive: true });
   }
 
-  // Find all PDF files in data/pdfs/
   const files = fs.readdirSync(pdfsDir);
   const pdfFiles = files.filter(file => file.toLowerCase().endsWith('.pdf'));
 
@@ -28,16 +27,21 @@ export async function POST() {
     }, { status: 400 });
   }
 
+  // Reset progress state for this new run
+  resetProgress();
+  setProgress({ phase: 'parsing', startedAt: Date.now(), message: `Parsing ${pdfFiles.length} PDF file(s)...` });
+
   try {
-    // 1. Clear previous index stores to ensure clean ingestion
+    // 1. Clear previous indexes
     await clearVectorStore();
     await clearBM25Index();
 
+    // 2. Parse PDFs
     const allPages: any[] = [];
     const documentsProcessed: string[] = [];
 
-    // 2. Parse each PDF
     for (const file of pdfFiles) {
+      setProgress({ message: `Parsing: ${file}` });
       const filePath = path.join(pdfsDir, file);
       const pages = await parsePDF(filePath);
       allPages.push(...pages);
@@ -45,39 +49,63 @@ export async function POST() {
     }
 
     if (allPages.length === 0) {
-      return NextResponse.json({
-        status: 'error',
-        message: 'Could not extract text from the provided PDFs. Please ensure they contain selectable text.'
-      }, { status: 400 });
+      setProgress({ phase: 'error', error: 'Could not extract text from PDFs.' });
+      return NextResponse.json({ status: 'error', message: 'Could not extract text from the provided PDFs.' }, { status: 400 });
     }
 
-    // 3. Chunk pages into 500-token chunks with 50-token overlap
+    // 3. Chunk
+    setProgress({ phase: 'chunking', message: 'Splitting pages into chunks...' });
     const chunks = chunkPages(allPages);
 
     if (chunks.length === 0) {
-      return NextResponse.json({
-        status: 'error',
-        message: 'No chunks generated from the pages.'
-      }, { status: 400 });
+      setProgress({ phase: 'error', error: 'No chunks generated.' });
+      return NextResponse.json({ status: 'error', message: 'No chunks generated from the pages.' }, { status: 400 });
     }
 
-    // 4. Generate Embeddings for all chunks (utilizing fast batching)
-    const chunkTexts = chunks.map(c => c.text);
-    const embeddings = await getEmbeddingsBatch(chunkTexts, false);
+    // 4. Embed with live progress updates
+    setProgress({
+      phase: 'embedding',
+      current: 0,
+      total: chunks.length,
+      message: `Embedding 0 / ${chunks.length} chunks...`,
+    });
 
-    // 5. Store embeddings + metadata in Vectra local store
+    const chunkTexts = chunks.map(c => c.text);
+    const embeddings = await getEmbeddingsBatch(
+      chunkTexts,
+      false,
+      (done, total) => {
+        setProgress({
+          current: done,
+          total,
+          message: `Embedding ${done} / ${total} chunks...`,
+        });
+      }
+    );
+
+    // 5. Build vector + BM25 indexes
+    setProgress({ phase: 'indexing', message: 'Writing vector index to disk...' });
     await addChunksToVectorStore(chunks, embeddings);
 
-    // 6. Build and store the BM25 keyword index
+    setProgress({ message: 'Building BM25 keyword index...' });
     await buildBM25Index(chunks);
+
+    // Done!
+    setProgress({
+      phase: 'done',
+      current: chunks.length,
+      total: chunks.length,
+      message: `Done! Indexed ${chunks.length} chunks from ${documentsProcessed.length} file(s).`,
+    });
 
     return NextResponse.json({
       status: 'success',
       chunks_indexed: chunks.length,
-      documents_processed: documentsProcessed
+      documents_processed: documentsProcessed,
     });
   } catch (e: any) {
     console.error('Ingestion pipeline failed:', e);
+    setProgress({ phase: 'error', error: e.message || 'Unknown error during ingestion.' });
     return NextResponse.json({
       status: 'error',
       message: e.message || 'An error occurred during PDF ingestion.'

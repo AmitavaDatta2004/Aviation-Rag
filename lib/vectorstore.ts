@@ -39,19 +39,19 @@ export async function clearVectorStore(): Promise<void> {
 export async function addChunksToVectorStore(chunks: Chunk[], embeddings: number[][]): Promise<void> {
   const index = await getVectorIndex();
 
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const vector = embeddings[i];
-    await index.insertItem({
-      vector,
-      metadata: {
-        chunk_id: chunk.chunk_id,
-        doc_name: chunk.doc_name,
-        page_number: chunk.page_number,
-        text: chunk.text,
-      },
-    });
-  }
+  console.log(`[Vectorstore] Preparing batch insert for ${chunks.length} items...`);
+  const items = chunks.map((chunk, i) => ({
+    vector: embeddings[i],
+    metadata: {
+      chunk_id: chunk.chunk_id,
+      doc_name: chunk.doc_name,
+      page_number: chunk.page_number,
+      text: chunk.text,
+    },
+  }));
+
+  await index.batchInsertItems(items);
+  console.log(`[Vectorstore] Successfully batch inserted ${chunks.length} items.`);
 }
 
 export interface VectorSearchResult {

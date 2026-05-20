@@ -1,130 +1,69 @@
-import { GoogleGenerativeAI, TaskType } from '@google/generative-ai';
-
-// Retrieve the Gemini API key from environment variables
-const apiKey = process.env.GEMINI_API_KEY || '';
-
-let genAI: GoogleGenerativeAI | null = null;
-if (apiKey) {
-  genAI = new GoogleGenerativeAI(apiKey);
-}
-
-function getClient(): GoogleGenerativeAI {
-  if (!genAI) {
-    const key = process.env.GEMINI_API_KEY || '';
-    if (!key || key === 'your_gemini_key_here') {
-      throw new Error('GEMINI_API_KEY is not configured in .env.local');
-    }
-    genAI = new GoogleGenerativeAI(key);
-  }
-  return genAI;
-}
-
-// Gemini Embedding 2 — latest stable GA model (3072-dim vectors)
-const EMBEDDING_MODEL = 'gemini-embedding-2';
-const EMBEDDING_MODEL_PATH = `models/${EMBEDDING_MODEL}`;
-
-// Free tier: 100 requests per minute per model.
-// We send batches of 50 and wait 35s between batches to stay safely under the limit.
-const BATCH_SIZE = 50;
-const BATCH_DELAY_MS = 35_000; // 35 seconds between batches
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 /**
- * Retry a function up to maxRetries times on 429 rate-limit errors,
- * parsing the retryDelay from the API error response when available.
+ * lib/embeddings.ts
+ *
+ * Local embedding engine using Transformers.js (ONNX Runtime).
+ * Model: Xenova/all-MiniLM-L6-v2  →  384-dimensional vectors
+ * Zero API keys, zero rate limits, zero cost.
+ * Model (~23MB) is downloaded once on first run and cached automatically.
  */
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 5): Promise<T> {
-  let lastError: any;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err: any) {
-      lastError = err;
-      const message: string = err?.message || '';
 
-      // Only retry on rate-limit (429) errors
-      if (!message.includes('429') && !message.includes('Too Many Requests') && !message.includes('RESOURCE_EXHAUSTED')) {
-        throw err;
-      }
+// @ts-ignore — @xenova/transformers ships its own types
+import { pipeline, env } from '@xenova/transformers';
 
-      // Try to parse the retryDelay hint from the error message (e.g. "retry in 23s")
-      const delayMatch = message.match(/retry[^0-9]*(\d+(?:\.\d+)?)\s*s/i);
-      const retryAfterSecs = delayMatch ? parseFloat(delayMatch[1]) : 30;
-      const waitMs = Math.ceil(retryAfterSecs * 1000) + 2000; // add 2s buffer
+// Run ONNX entirely in the Node.js process — no worker threads
+env.backends.onnx.wasm.numThreads = 1;
+env.allowRemoteModels = true;
+env.useBrowserCache = false;
 
-      console.warn(`[Embeddings] Rate limit hit. Retrying in ${(waitMs / 1000).toFixed(0)}s (attempt ${attempt + 1}/${maxRetries})...`);
-      await sleep(waitMs);
-    }
+const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
+
+/** Cached singleton — the model is loaded once and reused across all requests */
+let _extractor: any = null;
+
+async function getExtractor(): Promise<any> {
+  if (!_extractor) {
+    console.log('[Embeddings] Loading Xenova/all-MiniLM-L6-v2 model (first run may take a moment)...');
+    _extractor = await pipeline('feature-extraction', MODEL_NAME, {
+      quantized: true, // use int8 quantized ONNX model (~23MB)
+    });
+    console.log('[Embeddings] Model loaded and ready.');
   }
-  throw lastError;
+  return _extractor;
 }
 
 /**
- * Generates a vector embedding for the given text using Gemini Embedding 2.
+ * Generate a single 384-dim embedding vector for the given text.
+ * The `isQuery` param is kept for API compatibility with the rest of the pipeline.
  */
-export async function getEmbedding(text: string, isQuery = false): Promise<number[]> {
-  const client = getClient();
-  const model = client.getGenerativeModel({ model: EMBEDDING_MODEL });
-
-  const result = await withRetry(() =>
-    model.embedContent({
-      content: { role: 'user', parts: [{ text }] },
-      taskType: isQuery ? TaskType.RETRIEVAL_QUERY : TaskType.RETRIEVAL_DOCUMENT,
-    })
-  );
-
-  if (!result.embedding || !result.embedding.values) {
-    throw new Error('Failed to retrieve embedding values from Gemini API.');
-  }
-
-  return result.embedding.values;
+export async function getEmbedding(text: string, _isQuery = false): Promise<number[]> {
+  const extractor = await getExtractor();
+  // Cast to any to bypass overly broad union return type from @xenova/transformers
+  const output: any = await extractor(text, { pooling: 'mean', normalize: true });
+  return Array.from(output.data as Float32Array);
 }
 
 /**
- * Generates embeddings in rate-limit-aware batches.
- * Free tier cap: 100 requests/min → we use batches of 50 with 35s delays.
+ * Generate embeddings for a batch of texts.
+ * Runs fully locally — no API calls, no rate limits, no delays.
  */
 export async function getEmbeddingsBatch(
   texts: string[],
-  isQuery = false,
+  _isQuery = false,
   onProgress?: (done: number, total: number) => void
 ): Promise<number[][]> {
-  const client = getClient();
-  const model = client.getGenerativeModel({ model: EMBEDDING_MODEL });
-
+  const extractor = await getExtractor();
   const embeddings: number[][] = [];
-  const totalBatches = Math.ceil(texts.length / BATCH_SIZE);
+  const total = texts.length;
 
-  console.log(`[Embeddings] Starting batch embedding: ${texts.length} texts in ${totalBatches} batches of ${BATCH_SIZE}`);
+  console.log(`[Embeddings] Starting local batch: ${total} texts with ${MODEL_NAME}`);
 
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
-    const textChunk = texts.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < texts.length; i++) {
+    const output: any = await extractor(texts[i], { pooling: 'mean', normalize: true });
+    embeddings.push(Array.from(output.data as Float32Array));
+    onProgress?.(i + 1, total);
 
-    console.log(`[Embeddings] Batch ${batchIndex}/${totalBatches} — ${textChunk.length} texts...`);
-
-    const result = await withRetry(() =>
-      model.batchEmbedContents({
-        requests: textChunk.map(text => ({
-          content: { role: 'user', parts: [{ text }] },
-          taskType: isQuery ? TaskType.RETRIEVAL_QUERY : TaskType.RETRIEVAL_DOCUMENT,
-          model: EMBEDDING_MODEL_PATH,
-        })),
-      })
-    );
-
-    if (!result.embeddings) {
-      throw new Error(`Failed to retrieve batch embeddings at batch ${batchIndex}.`);
-    }
-
-    embeddings.push(...result.embeddings.map(e => e.values));
-    onProgress?.(embeddings.length, texts.length);
-
-    // Respect the 100 req/min free tier limit — wait between batches
-    if (batchIndex < totalBatches) {
-      console.log(`[Embeddings] Batch ${batchIndex} done. Waiting ${BATCH_DELAY_MS / 1000}s before next batch...`);
-      await sleep(BATCH_DELAY_MS);
+    if ((i + 1) % 50 === 0 || i + 1 === total) {
+      console.log(`[Embeddings] ${i + 1}/${total} done`);
     }
   }
 

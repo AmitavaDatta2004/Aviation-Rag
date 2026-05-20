@@ -6,10 +6,10 @@ import * as path from 'path';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  // Vectra stores the vector index at data/index/index.json
-  const indexPath = path.join(process.cwd(), 'data', 'index', 'index.json');
+  // Use chunks.json (BM25 metadata — small, fast) instead of the 28MB index.json
+  const chunksPath = path.join(process.cwd(), 'data', 'index', 'chunks.json');
 
-  if (!fs.existsSync(indexPath)) {
+  if (!fs.existsSync(chunksPath)) {
     return NextResponse.json({
       status: 'ok',
       index_loaded: false,
@@ -19,14 +19,13 @@ export async function GET() {
   }
 
   try {
-    const rawData = fs.readFileSync(indexPath, 'utf-8');
-    const indexData = JSON.parse(rawData);
-
-    // Vectra stores items as an array under the 'items' key
-    const items: any[] = Array.isArray(indexData.items) ? indexData.items : [];
-    const chunksCount = items.length;
+    const rawData = fs.readFileSync(chunksPath, 'utf-8');
+    // chunks.json is a map of { chunk_id: ChunkObject }
+    const chunksMap = JSON.parse(rawData) as Record<string, any>;
+    const chunks = Object.values(chunksMap);
+    const chunksCount = chunks.length;
     const documents: string[] = Array.from(
-      new Set(items.map((item: any) => item.metadata?.doc_name).filter(Boolean))
+      new Set(chunks.map((c: any) => c.doc_name).filter(Boolean))
     );
 
     return NextResponse.json({

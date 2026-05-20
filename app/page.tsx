@@ -133,6 +133,7 @@ export default function Home() {
             documents={documents}
             isIngesting={isIngesting}
             onIngest={handleIngest}
+            onIngestionComplete={checkHealth}
           />
 
           {/* Hallucination Safety Manual Card */}
