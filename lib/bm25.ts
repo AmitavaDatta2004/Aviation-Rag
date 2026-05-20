@@ -97,8 +97,10 @@ function loadBM25Engine() {
   try {
     const serializedIndex = fs.readFileSync(BM25_INDEX_PATH, 'utf-8');
     const metadataRaw = fs.readFileSync(CHUNKS_METADATA_PATH, 'utf-8');
-    
+
     const engine = bm25();
+    // Config MUST be defined before prepTasks — required by wink-bm25-text-search
+    engine.defineConfig({ fldWeights: { text: 1 } });
     engine.definePrepTasks(getPrepTasks());
     engine.importJSON(serializedIndex);
     engine.consolidate(); // Finalize search engine
