@@ -1,6 +1,7 @@
 {
   "name": "airman-rag",
   "version": "0.1.0",
+  "description": "A highly specialized, hallucination-resistant Hybrid RAG web application for aviation manuals featuring local embeddings and strict safety guardrails.",
   "private": true,
   "scripts": {
     "dev": "next dev",

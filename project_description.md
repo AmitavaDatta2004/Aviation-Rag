@@ -22,7 +22,7 @@ A chat system that answers aviation questions **strictly and only** from provide
 | Language     | TypeScript                           | Type safety throughout                      |
 | Styling      | Tailwind CSS + shadcn/ui             | Clean professional UI                       |
 | PDF Parsing  | `pdfjs-dist`                       | Extract text page by page with page numbers |
-| Embeddings   | Gemini API `text-embedding-004`    | Convert text to vectors (free)              |
+| Embeddings   | Transformers.js (`all-MiniLM-L6-v2`) | Convert text to vectors (100% local, free)  |
 | Vector Store | Vectra (local)                       | Store + search vectors on disk              |
 | LLM          | Groq API `llama-3.3-70b-versatile` | Generate grounded answers (free, fast)      |
 | BM25 Search  | `wink-bm25-text-search`            | Keyword-based retrieval (Level 2)           |
@@ -34,7 +34,7 @@ A chat system that answers aviation questions **strictly and only** from provide
 
 ```
 GROQ_API_KEY=your_groq_key_here
-GEMINI_API_KEY=your_gemini_key_here
+*(Note: GEMINI_API_KEY was previously used but is no longer required as embeddings are now local)*
 ```
 
 Nothing else. Completely free.
@@ -131,9 +131,9 @@ Aviation content is dense with procedures and regulations. 500 tokens keeps a fu
 
 **Step 3 — Embedding Generation**
 
-* Each chunk's text sent to Gemini `text-embedding-004`
-* Returns a 768-dimensional vector per chunk
-* Represents the semantic meaning of that chunk
+* Each chunk's text sent to local `Transformers.js` model (`Xenova/all-MiniLM-L6-v2`)
+* Returns a 384-dimensional vector per chunk
+* Represents the semantic meaning of that chunk (Runs fully locally, no API limits)
 
 **Step 4 — Storing in Vectra**
 
@@ -150,8 +150,8 @@ Aviation content is dense with procedures and regulations. 500 tokens keeps a fu
 
 **Step 1 — Embed the Question**
 
-* User's question sent to Gemini `text-embedding-004`
-* Returns a 768-dimensional vector
+* User's question sent to local `Transformers.js` model (`Xenova/all-MiniLM-L6-v2`)
+* Returns a 384-dimensional vector
 
 **Step 2 — Vector Search (Vectra)**
 
@@ -468,7 +468,7 @@ pdfjs-dist (extract text per page)
     ↓
 Chunker (500 tokens, 50 overlap)
     ↓
-Gemini text-embedding-004 (768 dim vectors)
+Transformers.js all-MiniLM-L6-v2 (384-dim local vectors)
     ↓
 Vectra (save vectors to disk)
     +
@@ -483,7 +483,7 @@ User Question (Chat UI)
     ↓
 POST /api/ask
     ↓
-Gemini text-embedding-004 (embed question)
+Transformers.js all-MiniLM-L6-v2 (embed question locally)
     ↓
 Vectra Search → Top 5 semantic chunks
     +
@@ -511,7 +511,7 @@ Chat UI (render answer, citations, debug panel)
 | 1    | Next.js setup + install all dependencies       |
 | 2    | PDF parser — load PDFs, extract text per page |
 | 3    | Chunker — split text, attach metadata         |
-| 4    | Gemini embeddings — send chunks, get vectors  |
+| 4    | Transformers.js embeddings — encode chunks, get local vectors  |
 | 5    | Vectra store — save + load index from disk    |
 | 6    | `/api/ingest`— wire steps 2–5 together     |
 | 7    | Groq LLM — grounding prompt + refusal logic   |
@@ -537,5 +537,5 @@ Chat UI (render answer, citations, debug panel)
 * ✅ Hybrid retrieval — BM25 + vector + reranker
 * ✅ Measurable evaluation — numbers not just opinions
 * ✅ Single clean repo — no separate backend
-* ✅ Completely free APIs — Groq + Gemini
+* ✅ Completely free — Groq API + Local Transformers.js
 * ✅ Fast responses — Groq is the fastest free LLM API
