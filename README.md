@@ -18,6 +18,78 @@ The UI is built with a custom **Risograph-inspired aesthetic**, combining sharp 
 
 ---
 
+```text
+=======================================================================
+               PHASE 1: DATA INGESTION & INDEXING
+=======================================================================
+
+   [ PDF Manuals ]
+          │
+          ▼  (pdfjs-dist)
+   [ Text Extraction ]
+          │
+          ▼  (Recursive Character Split)
+   [ Text Chunks ]
+          │
+      ┌───┴────────────────────────────┐
+      │                                │
+      ▼  (Transformers.js)             ▼  (wink-bm25)
+ [ Local Embeddings ]          [ Keyword Tokens ]
+ [ (384-dim Vector) ]                  │
+      │                                │
+      ▼  (batchInsertItems)            ▼
+ [( Vectra Vector DB )]        [( BM25 Keyword DB )]
+
+
+=======================================================================
+               PHASE 2: QUERY & HYBRID RETRIEVAL
+=======================================================================
+
+                   [ User Query ]
+                         │
+          ┌──────────────┴──────────────┐
+          │                             │
+          ▼  (Transformers.js)          ▼  (Tokenization)
+  [ Query Embedding ]           [ Query Keywords ]
+          │                             │
+          ▼                             ▼
+ [( Vectra Vector DB )]        [( BM25 Keyword DB )]
+          │                             │
+          ▼                             ▼
+ [ Semantic Results ]          [ Exact Match Results ]
+          │                             │
+          └──────────────┬──────────────┘
+                         │
+                         ▼
+             [ Combine & Deduplicate ]
+                         │
+                         ▼  (Groq API)
+             [ LLM Reranker (Top N) ]
+
+
+=======================================================================
+               PHASE 3: GENERATION & SAFEGUARDS
+=======================================================================
+
+                         │
+                         ▼
+               [ Prompt Builder ]
+        (Injects context + Strict Rules)
+                         │
+                         ▼
+                   [ Groq LLM ]
+                         │
+                         ▼
+               [ Refusal Filter ]
+    (Forces "I don't know" if not in text)
+                         │
+                         ▼
+                [ Final Answer ]
+                  (User UI)
+```
+
+---
+
 ## 🏗️ Architecture Stack
 
 *   **Framework**: Next.js 15 (App Router)
