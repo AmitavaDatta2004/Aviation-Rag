@@ -90,16 +90,19 @@ The UI is built with a custom **Risograph-inspired aesthetic**, combining sharp 
 
 ---
 
-## 🏗️ Architecture Stack
+## 🛠️ Complete Tech Stack
 
-*   **Framework**: Next.js 15 (App Router)
-*   **Styling**: Tailwind CSS v4 (Custom Risograph Theme)
-*   **PDF Parsing**: `pdfjs-dist`
-*   **Embeddings**: Transformers.js (`@xenova/transformers` - fully local)
-*   **Vector Database**: Vectra (Local JSON-based vector index)
-*   **Keyword Database**: `wink-bm25-text-search`
-*   **LLM Provider**: Groq API
-*   **Language**: TypeScript
+| Layer | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Framework** | **Next.js 15 (App Router)** | Full stack application (frontend + backend APIs) |
+| **Language** | **TypeScript** | End-to-end type safety |
+| **Styling** | **Tailwind CSS v4** | Rapid UI development with custom Risograph theme |
+| **PDF Parsing** | **`pdfjs-dist`** | Extracting raw text and maintaining page numbers |
+| **Embeddings** | **Transformers.js** (`all-MiniLM`) | Converting text to 384-dimensional semantic vectors (100% local) |
+| **Vector Database** | **Vectra** | Storing and performing semantic cosine similarity searches on disk |
+| **Keyword Database**| **`wink-bm25-text-search`** | Storing and performing exact-match keyword retrieval |
+| **LLM Provider** | **Groq API** (`llama-3.3-70b`) | Ultra-fast semantic reranking and grounded answer generation |
+| **Icons** | **Lucide React** | Clean, consistent SVG iconography |
 
 ---
 

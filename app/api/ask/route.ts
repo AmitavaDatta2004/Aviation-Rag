@@ -81,14 +81,14 @@ export async function POST(request: Request) {
 
     const refused = llmResult.refused;
 
-    // Citations are only included if the assistant did not refuse to answer
-    const citations = refused
-      ? []
-      : rerankedChunks.map(chunk => ({
+    // Citations are only included if the assistant actually used the context (not a refusal or pleasantry)
+    const citations = llmResult.requiresCitations
+      ? rerankedChunks.map(chunk => ({
           doc_name: chunk.doc_name,
           page_number: chunk.page_number,
           chunk_id: chunk.chunk_id,
-        }));
+        }))
+      : [];
 
     const response: any = {
       answer: llmResult.answer,

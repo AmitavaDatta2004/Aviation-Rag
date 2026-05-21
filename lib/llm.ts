@@ -24,6 +24,7 @@ export const REFUSAL_PHRASE = "This information is not available in the provided
 export interface LLMResponse {
   answer: string;
   refused: boolean;
+  requiresCitations: boolean;
 }
 
 /**
@@ -38,8 +39,11 @@ export async function askLLM(question: string, chunks: CandidateChunk[]): Promis
 ${chunk.text}`;
   }).join('\n\n');
 
-  const systemPrompt = `You are an aviation assistant. You must answer ONLY using the context provided below. Do not use any outside knowledge whatsoever. If the answer cannot be found in the context, respond with exactly this phrase and nothing else:
-"${REFUSAL_PHRASE}"`;
+  const systemPrompt = `You are an aviation assistant. You must answer ONLY using the context provided below. Do not use any outside knowledge whatsoever. 
+If the answer cannot be found in the context, respond with exactly this phrase and nothing else:
+"${REFUSAL_PHRASE}"
+
+If the user's input is a simple conversational pleasantry (e.g., "hello", "thank you"), reply politely but you MUST append the exact string "[NO_CITATION_REQUIRED]" to the very end of your response.`;
 
   const userPrompt = `CONTEXT:
 ${contextBlock}
@@ -56,13 +60,25 @@ ${question}`;
     temperature: 0.0, // Low temperature for high factual grounding
   });
 
-  const answer = chatCompletion.choices[0]?.message?.content?.trim() || '';
+  let answer = chatCompletion.choices[0]?.message?.content?.trim() || '';
+  let requiresCitations = true;
+
+  // Handle pleasantry flag
+  if (answer.includes('[NO_CITATION_REQUIRED]')) {
+    requiresCitations = false;
+    answer = answer.replace('[NO_CITATION_REQUIRED]', '').trim();
+  }
 
   // Determine if the LLM refused to answer because info wasn't in context
   const refused = answer.includes(REFUSAL_PHRASE) || answer === REFUSAL_PHRASE;
+  
+  if (refused) {
+    requiresCitations = false;
+  }
 
   return {
     answer,
     refused,
+    requiresCitations
   };
 }
